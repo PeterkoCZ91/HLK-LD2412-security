@@ -1,0 +1,22 @@
+#ifndef KNOWN_DEVICES_H
+#define KNOWN_DEVICES_H
+
+struct DeviceIdentity {
+    const char* mac;       // MAC address (lowercase)
+    const char* id;        // MQTT Client ID
+    const char* hostname;  // mDNS / WiFi Hostname
+};
+
+// Add your ESP32 devices here.
+// The firmware auto-detects which device it's running on by MAC address,
+// and assigns the corresponding MQTT ID and hostname.
+// This allows flashing the same firmware to multiple boards.
+const DeviceIdentity KNOWN_DEVICES[] = {
+    // Example: { "aa:bb:cc:dd:ee:ff", "ld2412_living_room", "sensor-living-room" },
+    { "aa:bb:cc:dd:ee:f1", "ld2412_sensor_1", "sensor-1" },
+    { "aa:bb:cc:dd:ee:f2", "ld2412_sensor_2", "sensor-2" },
+};
+
+const int KNOWN_DEVICE_COUNT = sizeof(KNOWN_DEVICES) / sizeof(KNOWN_DEVICES[0]);
+
+#endif

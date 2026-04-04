@@ -1,0 +1,28 @@
+# Build
+.pio/
+.vscode/
+.platformio/
+
+# Python
+*.pyc
+__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (copy .example files and fill in your values)
+include/secrets.h
+include/secrets_*.h
+
+# Device-specific config (copy .example and fill in your MACs)
+include/known_devices.h
+
+# Logs
+*.log
+logs/
+
+# Firmware binaries & archives
+*.bin
+*.zip
+*.tar.gz
