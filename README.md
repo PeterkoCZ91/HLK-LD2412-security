@@ -762,6 +762,15 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ---
 
+## Related Projects
+
+- **[multi-sensor-fusion](https://github.com/PeterkoCZ91/multi-sensor-fusion)** -- Python service that fuses this node's MQTT output with other radars (LD2450), WiFi CSI (ESPectre), and Home Assistant sensors into a single weighted-average presence confidence per room. Ships with data-driven weight tuning tools.
+- **[HLK-LD2412-POE-security](https://github.com/PeterkoCZ91/HLK-LD2412-POE-security)** -- Ethernet (PoE) variant of this firmware, same alarm logic over wired networking.
+- **[HLK-LD2412-POE-WiFi-CSI-security](https://github.com/PeterkoCZ91/HLK-LD2412-POE-WiFi-CSI-security)** -- PoE variant with WiFi CSI passive motion detection added alongside the radar.
+- **[HLK-LD2450-security](https://github.com/PeterkoCZ91/HLK-LD2450-security)** -- Sister project using the 2D LD2450 radar (up to 3 targets, zone localization).
+
+---
+
 ## Acknowledgments
 
 - [HLK-LD2412 Protocol V1.05](https://assets.super.so/79c0d2a8-d37a-438f-8fbe-c44778f3b0dd/files/6b5abbe3-d359-4ef3-a125-61b32b1620b1/HLK-LD2412_Serial_Communication_Protocol_V1.05_240808.pdf) -- official serial protocol documentation
