@@ -208,28 +208,28 @@ void TelegramService::processCommand(const String& command, const String& chatId
     if (atPos > 0) cmd = cmd.substring(0, atPos);
 
     if (cmd == "/start") {
-        sendMessage("👋 *LD2412 Security Node* " + String(FW_VERSION) + "\n\nCommands:\n/status - System status\n/arm - Arm alarm\n/disarm - Disarm alarm\n/arm_now - Immediate arm\n/learn - Learn static reflector\n/light - Light level\n/mute - Mute 10 min\n/restart - Restart");
+        sendMessage("👋 *LD2412 Security Node* " + String(FW_VERSION) + "\n\nPříkazy:\n/status - Stav systému\n/arm - Aktivovat alarm\n/disarm - Deaktivovat alarm\n/arm_now - Okamžitá aktivace\n/learn - Naučit statický reflektor\n/light - Úroveň světla\n/mute - Ztlumit 10 min\n/restart - Restart");
     }
     else if (cmd == "/arm") {
         if (_secMon) {
             _secMon->setArmed(true, false);
             // SecurityMonitor sends notification via triggerAlert
         } else {
-            sendMessage("❌ SecurityMonitor unavailable");
+            sendMessage("❌ SecurityMonitor nedostupný");
         }
     }
     else if (cmd == "/arm_now") {
         if (_secMon) {
             _secMon->setArmed(true, true);
         } else {
-            sendMessage("❌ SecurityMonitor unavailable");
+            sendMessage("❌ SecurityMonitor nedostupný");
         }
     }
     else if (cmd == "/disarm") {
         if (_secMon) {
             _secMon->setArmed(false);
         } else {
-            sendMessage("❌ SecurityMonitor unavailable");
+            sendMessage("❌ SecurityMonitor nedostupný");
         }
     }
     else if (cmd == "/status") {
@@ -239,7 +239,7 @@ void TelegramService::processCommand(const String& command, const String& chatId
             msg += "🛡️ *Alarm:* " + String(_secMon->getAlarmStateStr());
             String zone = _secMon->getCurrentZoneName();
             if (zone.length() > 0 && zone != "none")
-                msg += " _(zone: " + zone + ")_";
+                msg += " _(zóna: " + zone + ")_";
             msg += "\n\n";
         }
 
@@ -249,12 +249,12 @@ void TelegramService::processCommand(const String& command, const String& chatId
             _radar->getTelemetryJson(doc);
 
             msg += "📡 *Radar*\n";
-            String stateStr = "Idle";
-            if (d.state == PresenceState::PRESENCE_DETECTED) stateStr = "🔴 DETECTED";
+            String stateStr = "Klid";
+            if (d.state == PresenceState::PRESENCE_DETECTED) stateStr = "🔴 DETEKCE";
             else if (d.state == PresenceState::HOLD_TIMEOUT)  stateStr = "⏳ HOLD";
-            else if (d.state == PresenceState::TAMPER)         stateStr = "🚨 TAMPER";
-            msg += "State: *" + stateStr + "*\n";
-            msg += "Distance: " + String(d.distance_cm) + " cm\n";
+            else if (d.state == PresenceState::TAMPER)         stateStr = "🚨 SABOTÁŽ";
+            msg += "Stav: *" + stateStr + "*\n";
+            msg += "Vzdálenost: " + String(d.distance_cm) + " cm\n";
             msg += "Energie Mov/Stat: " + String(d.moving_energy) + " / " + String(d.static_energy) + "%\n";
 
             int sg = doc["static_gate"]  | -1;
@@ -267,7 +267,7 @@ void TelegramService::processCommand(const String& command, const String& chatId
             msg += " | " + String(fr, 1) + " fps\n\n";
         }
 
-        msg += "📶 *Network*\n";
+        msg += "📶 *Síť*\n";
         msg += "IP: " + WiFi.localIP().toString() + "\n";
         msg += "RSSI: " + String(WiFi.RSSI()) + " dBm\n\n";
 
@@ -280,18 +280,18 @@ void TelegramService::processCommand(const String& command, const String& chatId
     }
     else if (cmd == "/light") {
         if (_radar && _radar->isEngineeringMode()) {
-            sendMessage("💡 Light level: *" + String(_radar->getLightLevel()) + "* (0-255)");
+            sendMessage("💡 Úroveň světla: *" + String(_radar->getLightLevel()) + "* (0-255)");
         } else {
-            sendMessage("⚠️ Engineering Mode must be active for light readings (/eng_on).");
+            sendMessage("⚠️ Pro čtení světla musí být aktivní Engineering Mode (/eng_on).");
         }
     }
     else if (cmd == "/eng_on") {
-        if (_radar && _radar->setEngineeringMode(true)) sendMessage("✅ Engineering Mode ON");
-        else sendMessage("❌ Failed to enable");
+        if (_radar && _radar->setEngineeringMode(true)) sendMessage("✅ Engineering Mode ZAPNUT");
+        else sendMessage("❌ Chyba při zapínání");
     }
     else if (cmd == "/eng_off") {
-        if (_radar && _radar->setEngineeringMode(false)) sendMessage("✅ Engineering Mode OFF");
-        else sendMessage("❌ Failed to disable");
+        if (_radar && _radar->setEngineeringMode(false)) sendMessage("✅ Engineering Mode VYPNUT");
+        else sendMessage("❌ Chyba při vypínání");
     }
     else if (cmd == "/restart") {
         sendMessage("🔄 Restarting...");
@@ -305,30 +305,30 @@ void TelegramService::processCommand(const String& command, const String& chatId
                 int pct  = doc["progress"] | 0;
                 int freq = doc["static_freq_pct"] | 0;
                 int gate = doc["top_gate"] | 0;
-                sendMessage("⏳ Learn in progress: " + String(pct) + "% | Static: " + String(freq) + "% | Top gate: " + String(gate) + " (~" + String(gate*75) + "cm)");
+                sendMessage("⏳ Learn probíhá: " + String(pct) + "% | Statika: " + String(freq) + "% | Top gate: " + String(gate) + " (~" + String(gate*75) + "cm)");
             } else {
                 bool started = _radar->startStaticLearn(180);
                 if (started)
-                    sendMessage("📡 Static learn started (3 min). Result will be sent automatically.");
+                    sendMessage("📡 Static learn spuštěn (3 min). Výsledek dostaneš automaticky.");
                 else
-                    sendMessage("❌ Failed to start learn.");
+                    sendMessage("❌ Learn se nepodařilo spustit.");
             }
         }
     }
     else if (cmd == "/mute") {
         _muteStartTime = millis();
         _muteDuration = 600000; // 10 minutes
-        sendMessage("🔕 Notifications muted for 10 minutes.");
+        sendMessage("🔕 Notifikace ztlumeny na 10 minut.");
     }
     else if (cmd == "/unmute") {
         _muteDuration = 0;
-        sendMessage("🔔 Notifications enabled.");
+        sendMessage("🔔 Notifikace zapnuty.");
     }
     else if (cmd == "/help") {
-        sendMessage("ℹ️ *Commands*\n\n/status - Detailed status (FW, UART, gates)\n/arm - Arm alarm (with delay)\n/arm_now - Immediate arm\n/disarm - Disarm alarm\n/learn - Learn static reflector (3 min)\n/light - Light sensor\n/mute - Mute for 10 min\n/unmute - Unmute\n/eng_on - Enable Eng. mode\n/eng_off - Disable Eng. mode\n/restart - Restart");
+        sendMessage("ℹ️ *Příkazy*\n\n/status - Detailní stav (FW, UART, gate)\n/arm - Aktivovat alarm (s delay)\n/arm_now - Okamžitá aktivace\n/disarm - Deaktivovat alarm\n/learn - Naučit statický reflektor (3 min)\n/light - Světelný senzor\n/mute - Ztlumit na 10 min\n/unmute - Zrušit ztlumení\n/eng_on - Zapnout Eng. mód\n/eng_off - Vypnout Eng. mód\n/restart - Restartovat");
     }
     else {
-        sendMessage("❓ Unknown command. Try /help");
+        sendMessage("❓ Neznámý příkaz. Zkus /help");
     }
 }
 

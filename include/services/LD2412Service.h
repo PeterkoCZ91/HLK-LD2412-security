@@ -175,7 +175,7 @@ private:
 
     // Static zone auto-learning
     bool     _learnActive          = false;
-    bool     _learnDone            = false; // flag: learn finished, main loop sends notification
+    bool     _learnDone            = false; // flag: learn skončil, main loop pošle notifikaci
     unsigned long _learnStart      = 0;
     uint16_t _learnDuration        = 0;   // seconds
     uint32_t _learnTotalSamples    = 0;

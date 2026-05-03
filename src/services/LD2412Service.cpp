@@ -279,15 +279,15 @@ void LD2412Service::update() {
             _lastDist = 0;
         }
 
-        // Static zone auto-learning — collects pure static samples (no motion)
+        // Static zone auto-learning — sbírá vzorky čisté statiky (bez pohybu)
         if (_learnActive) {
             if (now - _learnStart > (unsigned long)_learnDuration * 1000) {
                 _learnActive = false;
                 DBG("LEARN", "Done: %lu static / %lu total samples", _learnStaticSamples, _learnTotalSamples);
-                _learnDone = true;  // flag for main loop → Telegram notification
+                _learnDone = true;  // flag pro main loop → Telegram notifikace
             } else {
                 _learnTotalSamples++;
-                // Pure static = no motion, static energy present
+                // Čistá statika = žádný pohyb, statická energie přítomna
                 if (movEn < 10 && statEn > 15 && statDist > 0) {
                     uint8_t gate = (uint8_t)(statDist / _gateResolutionCm);
                     if (gate < 14) {
@@ -671,7 +671,7 @@ bool LD2412Service::factoryReset() {
     
     if (!result) {
         DBG("RADAR", "Standard factory reset failed, trying aggressive method...");
-        // Aggressive method: send command directly without waiting for enableConfig ACK
+        // Agresivní metoda: poslat příkaz přímo bez čekání na ACK z enableConfig
         _serial->flush();
         uint8_t enableCmd[] = {0xFD, 0xFC, 0xFB, 0xFA, 0x04, 0x00, 0xFF, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01};
         uint8_t resetCmd[]  = {0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xA2, 0x00, 0x04, 0x03, 0x02, 0x01};
@@ -680,7 +680,7 @@ bool LD2412Service::factoryReset() {
         delay(50);
         _serial->write(resetCmd, sizeof(resetCmd));
         delay(50);
-        result = true; // Assume success of aggressive attempt
+        result = true; // Předpokládáme úspěch agresivního pokusu
     }
 
     esp_task_wdt_reset();
@@ -697,7 +697,7 @@ bool LD2412Service::restartRadar() {
     
     if (!result) {
         DBG("RADAR", "Standard restart failed, trying aggressive method...");
-        // Aggressive method: send restart command directly
+        // Agresivní metoda: poslat restartovací příkaz přímo
         _serial->flush();
         uint8_t enableCmd[] = {0xFD, 0xFC, 0xFB, 0xFA, 0x04, 0x00, 0xFF, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01};
         uint8_t restartCmd[] = {0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xA3, 0x00, 0x04, 0x03, 0x02, 0x01};
@@ -805,7 +805,7 @@ void LD2412Service::getLearnResultJson(JsonDocument& doc) {
     doc["total_samples"]  = _learnTotalSamples;
     doc["static_samples"] = _learnStaticSamples;
 
-    // Static frequency (% of samples with pure static)
+    // Frekvence statiky (% vzorků kde byla čistá statika)
     float staticFreq = (_learnTotalSamples > 0)
         ? (_learnStaticSamples * 100.0f / _learnTotalSamples) : 0.0f;
     doc["static_freq_pct"] = (int)staticFreq;
@@ -823,7 +823,7 @@ void LD2412Service::getLearnResultJson(JsonDocument& doc) {
             ? (int)(_learnGateCount[i] * 100 / _learnTotalSamples) : 0;
     }
 
-    // Most frequent gate = recommended zone
+    // Nejčastější gate = doporučená zóna
     int topGate = 0;
     for (int i = 1; i < 14; i++) {
         if (_learnGateCount[i] > _learnGateCount[topGate]) topGate = i;
@@ -834,7 +834,7 @@ void LD2412Service::getLearnResultJson(JsonDocument& doc) {
     doc["top_cm"]     = (int)(topGate * _gateResolutionCm);
     doc["confidence"] = confidence;
 
-    // Suggested zone (±1 gate range)
+    // Navrhovaná zóna (±1 gate rozmezí)
     if (confidence >= 5 && _learnStaticSamples >= 10) {
         int minCm = max(0, (int)((topGate - 1) * _gateResolutionCm));
         int maxCm = (int)((topGate + 1) * _gateResolutionCm);
@@ -876,7 +876,7 @@ uint8_t LD2412Service::getMinMoveEnergy() const {
 }
 
 void LD2412Service::setTamperDetected(bool tamper) {
-    // Wait for mutex with longer timeout - tamper state is critical
+    // Čekej na mutex s delším timeoutem - stav tamperu je kritický
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
         if (_tamperExternal != tamper) {
             _tamperExternal = tamper;
@@ -888,8 +888,8 @@ void LD2412Service::setTamperDetected(bool tamper) {
         }
         xSemaphoreGive(_mutex);
     } else {
-        // Mutex timeout - log warning, but do NOT modify state without protection
-        // This should not happen during normal operation
+        // Mutex timeout - logovat varování, ale NEmodifikovat stav bez ochrany
+        // Toto by nemělo nastat při normálním provozu
         DBG("RADAR", "WARNING: setTamperDetected mutex timeout!");
     }
 }

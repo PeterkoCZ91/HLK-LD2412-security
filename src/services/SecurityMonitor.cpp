@@ -73,9 +73,9 @@ void SecurityMonitor::update() {
         _alarmState = AlarmState::ARMED;
         DBG("SecMon", "ARMED (exit delay expired)");
         if (_lastDistance > 0) {
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔒 System ARMED", "⚠️ Presence still detected at activation! Distance: " + String(_lastDistance) + " cm");
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔒 Systém ARMED", "⚠️ Přítomnost stále detekována při aktivaci! Vzdálenost: " + String(_lastDistance) + " cm");
         } else {
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔒 System ARMED", "Exit delay complete.");
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔒 Systém ARMED", "Exit delay dokončen.");
         }
     }
 
@@ -86,11 +86,11 @@ void SecurityMonitor::update() {
             _alarmState = AlarmState::ARMED;
             clearApproachLog(); // FIX #7: Clear stale approach history from previous incident
             DBG("SecMon", "TRIGGERED timeout — auto-rearmed to ARMED");
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔕 Alarm auto-silenced", "Timeout " + String(_triggerTimeout / 60000) + " min. System re-ARMED.");
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔕 Alarm auto-silenced", "Timeout " + String(_triggerTimeout / 60000) + " min. Systém znovu ARMED.");
         } else {
             _alarmState = AlarmState::DISARMED;
             DBG("SecMon", "TRIGGERED timeout — disarmed");
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔕 Alarm auto-silenced", "Timeout " + String(_triggerTimeout / 60000) + " min. System DISARMED.");
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔕 Alarm auto-silenced", "Timeout " + String(_triggerTimeout / 60000) + " min. Systém DISARMED.");
         }
     }
 
@@ -99,14 +99,14 @@ void SecurityMonitor::update() {
         if (now - _lastDisarmReminder > _disarmReminderInterval) {
             _lastDisarmReminder = now;
             triggerAlert(NotificationType::HEALTH_WARNING,
-                "⚠️ System is still DISARMED",
-                "Presence detected but alarm is not enabled.\nUse /arm to activate.");
+                "⚠️ Systém je stále DISARMED",
+                "Detekována přítomnost, ale alarm není zapnutý.\nPoužij /arm pro aktivaci.");
         }
     }
     if (_mutex) xSemaphoreGive(_mutex);
 }
 
-void SecurityMonitor::setArmed(bool armed, bool immediate) {
+void SecurityMonitor::setArmed(bool armed, bool immediate, bool homeMode) {
     if (_mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return;
     unsigned long now = millis();
     if (armed) {
@@ -116,21 +116,33 @@ void SecurityMonitor::setArmed(bool armed, bool immediate) {
             if (_mutex) xSemaphoreGive(_mutex);
             return;
         }
-        // Already arming/armed — idempotent, no-op
+        // Already arming/armed — idempotent, but allow upgrading the mode
         if (_alarmState == AlarmState::ARMING || _alarmState == AlarmState::ARMED) {
-            DBG("SecMon", "setArmed(true) ignored — already %s", getAlarmStateStr());
+            if (_homeMode != homeMode) {
+                _homeMode = homeMode;
+                DBG("SecMon", "setArmed(true) mode flip → %s", getAlarmStateStr());
+            } else {
+                DBG("SecMon", "setArmed(true) ignored — already %s", getAlarmStateStr());
+            }
+            if (_prefs) _prefs->putBool("sec_home_mode", _homeMode);
             if (_mutex) xSemaphoreGive(_mutex);
             return;
         }
+        _homeMode = homeMode;
         if (immediate) {
             _alarmState = AlarmState::ARMED;
-            DBG("SecMon", "ARMED (immediate)");
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔒 System ARMED", "Immediate activation.");
+            DBG("SecMon", "ARMED (immediate, %s)", _homeMode ? "home" : "away");
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE,
+                         _homeMode ? "🏠 Systém ARMED HOME" : "🔒 Systém ARMED",
+                         "Okamžitá aktivace.");
         } else {
             _alarmState = AlarmState::ARMING;
             _exitDelayStart = now;
-            DBG("SecMon", "ARMING (exit delay %lu s)", _exitDelay / 1000);
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "⏳ ARMING...", "Exit delay: " + String(_exitDelay / 1000) + "s");
+            DBG("SecMon", "ARMING (%s, exit delay %lu s)",
+                _homeMode ? "home" : "away", _exitDelay / 1000);
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE,
+                         _homeMode ? "⏳ ARMING HOME..." : "⏳ ARMING...",
+                         "Exit delay: " + String(_exitDelay / 1000) + "s");
         }
         clearApproachLog();
         _armedDebounceCount = 0;
@@ -142,6 +154,7 @@ void SecurityMonitor::setArmed(bool armed, bool immediate) {
         // FIX #1: Always deactivate siren on disarm (covers TRIGGERED + any corrupted state)
         deactivateSiren();
         _alarmState = AlarmState::DISARMED;
+        _homeMode = false;
         _entryDelayStart = 0;
         _exitDelayStart = 0;
         _lastPresenceWhileDisarmed = 0;
@@ -149,7 +162,7 @@ void SecurityMonitor::setArmed(bool armed, bool immediate) {
         _lastDisarmReminder = 0;
         DBG("SecMon", "DISARMED");
         if (prev != AlarmState::DISARMED) {
-            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔓 System DISARMED", "");
+            triggerAlert(NotificationType::ALARM_STATE_CHANGE, "🔓 Systém DISARMED", "");
             strncpy(_pendingEvent.reason, "disarmed", sizeof(_pendingEvent.reason) - 1);
             strncpy(_pendingEvent.zone, _currentZoneName.c_str(), sizeof(_pendingEvent.zone) - 1);
             _pendingEvent.distance_cm = 0; _pendingEvent.energy_mov = 0; _pendingEvent.energy_stat = 0;
@@ -161,6 +174,7 @@ void SecurityMonitor::setArmed(bool armed, bool immediate) {
     // Persist
     if (_prefs) {
         _prefs->putBool("sec_armed", armed);
+        _prefs->putBool("sec_home_mode", _homeMode);
     }
     if (_mutex) xSemaphoreGive(_mutex);
 }
@@ -169,7 +183,7 @@ const char* SecurityMonitor::getAlarmStateStr() const {
     switch (_alarmState) {
         case AlarmState::DISARMED:  return "disarmed";
         case AlarmState::ARMING:    return "arming";
-        case AlarmState::ARMED:     return "armed_away";
+        case AlarmState::ARMED:     return _homeMode ? "armed_home" : "armed_away";
         case AlarmState::PENDING:   return "pending";
         case AlarmState::TRIGGERED: return "triggered";
         default: return "disarmed";
@@ -308,7 +322,7 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
     // Reset per-frame filtered flag
     _isStaticFiltered = false;
 
-    // Pet Immunity — ignore low energy (move and static)
+    // Pet Immunity — ignoruj nízkou energii (move i static)
     if (_petImmunityThreshold > 0) {
         if (move_energy > 0 && move_energy < _petImmunityThreshold) {
             move_energy = 0;
@@ -340,22 +354,22 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
         _lastDistance = 0;
     }
 
-    // 2. Anti-Masking (Blind Detection) - CONFIGURABLE
-    // For empty locations (warehouses, cabins, server rooms) silence may be normal
+    // 2. Anti-Masking (Blind Detection) - KONFIGUROVATELNÉ
+    // Pro prázdné lokality (sklady, chaty, serverovny) může být ticho normální
     if (move_energy == 0 && static_energy == 0) {
         if (_zeroEnergyStart == 0) _zeroEnergyStart = now;
 
-        // Use configurable threshold (default 5 min)
+        // Použij konfigurovatelný threshold (default 5 min)
         if (now - _zeroEnergyStart > _antiMaskThreshold) {
             if (!_isBlind) {
                 _isBlind = true;
-                DBG("SecMon", "Anti-Masking: Silence detected (>%lu min)", _antiMaskThreshold / MS_PER_MINUTE);
+                DBG("SecMon", "Anti-Masking: Ticho detekováno (>%lu min)", _antiMaskThreshold / MS_PER_MINUTE);
 
-                // ONLY if anti-masking is ENABLED, send notification
+                // POUZE pokud je anti-masking ZAPNUTÝ, pošli notifikaci
                 if (_antiMaskEnabled) {
-                    String msg = "⚠️ ANTI-MASKING: Sensor detects no activity!";
-                    String details = "Possible tampering (sensor covered) or empty room.\n";
-                    details += "Silence duration: " + String(_antiMaskThreshold / MS_PER_MINUTE) + " min";
+                    String msg = "⚠️ ANTI-MASKING: Sensor nedetekuje žádnou aktivitu!";
+                    String details = "Možná sabotáž (zakrytí sensoru) nebo prázdná místnost.\n";
+                    details += "Doba ticha: " + String(_antiMaskThreshold / MS_PER_MINUTE) + " min";
                     triggerAlert(NotificationType::TAMPER_ALERT, msg, details);
                 }
             }
@@ -364,11 +378,11 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
         _zeroEnergyStart = 0;
         if (_isBlind) {
             _isBlind = false;
-            DBG("SecMon", "Anti-Masking: Activity restored");
+            DBG("SecMon", "Anti-Masking: Aktivita obnovena");
         }
     }
 
-    // 3. Heartbeat / Periodic Report (configurable interval)
+    // 3. Heartbeat / Pravidelný Report (konfigurovatelný interval)
     if (_lastHeartbeat == 0) _lastHeartbeat = now;
 
     if (_heartbeatInterval > 0 && now - _lastHeartbeat > _heartbeatInterval) {
@@ -377,7 +391,7 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
         unsigned long uptimeHours = millis() / MS_PER_HOUR;
         unsigned long uptimeDays = uptimeHours / 24;
 
-        String msg = "🟢 Heartbeat: ONLINE & GUARDING";
+        String msg = "🟢 Heartbeat: ONLINE & STŘEŽÍM";
         String details = "Uptime: ";
         if (uptimeDays > 0) {
             details += String(uptimeDays) + "d " + String(uptimeHours % 24) + "h";
@@ -385,12 +399,12 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
             details += String(uptimeHours) + "h";
         }
         details += "\nWiFi: " + String(WiFi.RSSI()) + " dBm";
-        details += "\nStatus: " + String(_isBlind ? "Silent (no activity)" : "Active");
+        details += "\nStav: " + String(_isBlind ? "Ticho (žádná aktivita)" : "Aktivní");
 
         triggerAlert(NotificationType::HEALTH_WARNING, msg, details);
     }
 
-    // 4. Loitering (Suspicious lingering) - CONFIGURABLE
+    // 4. Loitering (Poflakování) - KONFIGUROVATELNÉ
     // Someone is close (< 2m) and staying for configurable time
     if (distance > 0 && distance < 200) {
         if (_loiterStart == 0) _loiterStart = now;
@@ -398,12 +412,12 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
         if (now - _loiterStart > _loiterThreshold) {
             if (!_isLoitering) {
                 _isLoitering = true;
-                DBG("SecMon", "Loitering: Person <2m for >%lu sec", _loiterThreshold / 1000);
+                DBG("SecMon", "Loitering: Osoba <2m po dobu >%lu sec", _loiterThreshold / 1000);
 
                 if (_loiterAlertEnabled) {
-                    String msg = "👤 LOITERING: Someone lingering in close zone!";
-                    String details = "Distance: " + String(distance) + " cm\n";
-                    details += "Duration: >" + String(_loiterThreshold / 1000) + " seconds";
+                    String msg = "👤 LOITERING: Někdo postává v blízké zóně!";
+                    String details = "Vzdálenost: " + String(distance) + " cm\n";
+                    details += "Doba: >" + String(_loiterThreshold / 1000) + " sekund";
                     triggerAlert(NotificationType::PRESENCE_DETECTED, msg, details);
                 } else {
                     DBG("SecMon", "Loitering detected but notifications are DISABLED in config");
@@ -452,15 +466,15 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
                  // Zone alerts are informational, use HEALTH_WARNING for high-level zones too
                  NotificationType nt = NotificationType::PRESENCE_DETECTED;
                  if (z.alert_level >= 2) nt = NotificationType::HEALTH_WARNING;
-                 String msg = "Zone entry: " + String(z.name);
-                 String details = "Distance: " + String(distance) + " cm";
+                 String msg = "Vstup do zóny: " + String(z.name);
+                 String details = "Vzdálenost: " + String(distance) + " cm";
                  triggerAlert(nt, msg, details);
              }
         }
     }
 
-    // 4a2. Static reflector filter — independent of armed state
-    // If detection is in zone behavior==3 and purely static energy → always filter
+    // 4a2. Static reflector filter — nezávisle na armed stavu
+    // Pokud je detekce v zóně behavior==3 a jde o čistě statickou energii → filtrovat vždy
     if (_currentZoneIndex >= 0 && (size_t)_currentZoneIndex < _zones.size() &&
         _zones[_currentZoneIndex].alarm_behavior == 3 &&
         move_energy < _alarmEnergyThreshold && distance > 0) {
@@ -507,13 +521,13 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
         if (behavior == 2) {
             DBG("SecMon", "Detection in ignore-zone '%s', skipping alarm", _currentZoneName.c_str());
         } else if (behavior == 3) {
-            // ignore_static_only: fixed reflectors (e.g. metal ladder) generate only static without movement
+            // ignore_static_only: fixní reflektory (např. kovový žebřík) generují jen statiku bez pohybu
             if (move_energy < _alarmEnergyThreshold) {
                 // _isStaticFiltered already set above
                 DBG("SecMon", "Static-only in zone '%s' (move=%d < thr=%d), skip",
                     _currentZoneName.c_str(), move_energy, _alarmEnergyThreshold);
             } else {
-                // Movement present → entry delay (real intruder)
+                // Pohyb přítomen → entry delay (reálný narušitel)
                 _alarmState = AlarmState::PENDING;
                 _entryDelayStart = now;
                 strncpy(_pendingEvent.reason, "entry_delay", sizeof(_pendingEvent.reason) - 1);
@@ -523,8 +537,8 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
                 _pendingEvent.uptime_s = now / 1000; fillISOTime(_pendingEvent.iso_time, sizeof(_pendingEvent.iso_time));
                 enqueueAlarmEvent();
                 DBG("SecMon", "PENDING — move in static-filter zone '%s'", _currentZoneName.c_str());
-                triggerAlert(NotificationType::ENTRY_DETECTED, "⏳ ENTRY DETECTED!",
-                    "Entry delay: " + String(_entryDelay / 1000) + "s\nZone: " + _currentZoneName + "\n" + formatApproachLog(), distance);
+                triggerAlert(NotificationType::ENTRY_DETECTED, "⏳ VSTUP DETEKOVÁN!",
+                    "Entry delay: " + String(_entryDelay / 1000) + "s\nZona: " + _currentZoneName + "\n" + formatApproachLog(), distance);
             }
         } else if (behavior == 1) {
             _alarmState = AlarmState::TRIGGERED;
@@ -536,7 +550,7 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
             _pendingEvent.uptime_s = now / 1000; fillISOTime(_pendingEvent.iso_time, sizeof(_pendingEvent.iso_time));
             enqueueAlarmEvent();
             DBG("SecMon", "IMMEDIATE TRIGGER in zone '%s'!", _currentZoneName.c_str());
-            triggerAlert(NotificationType::ALARM_TRIGGERED, "🚨 ALARM TRIGGERED!", "Immediate trigger in zone: " + _currentZoneName + "\n" + formatApproachLog(), distance);
+            triggerAlert(NotificationType::ALARM_TRIGGERED, "🚨 ALARM TRIGGERED!", "Okamžitý trigger v zóně: " + _currentZoneName + "\n" + formatApproachLog(), distance);
             activateSiren();
         } else {
             _alarmState = AlarmState::PENDING;
@@ -548,18 +562,18 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
             _pendingEvent.uptime_s = now / 1000; fillISOTime(_pendingEvent.iso_time, sizeof(_pendingEvent.iso_time));
             enqueueAlarmEvent();
             DBG("SecMon", "PENDING (entry delay %lu s)", _entryDelay / 1000);
-            triggerAlert(NotificationType::ENTRY_DETECTED, "⏳ ENTRY DETECTED!", "Entry delay: " + String(_entryDelay / 1000) + "s\n" + formatApproachLog() + "Use /disarm to deactivate.", distance);
+            triggerAlert(NotificationType::ENTRY_DETECTED, "⏳ VSTUP DETEKOVÁN!", "Entry delay: " + String(_entryDelay / 1000) + "s\n" + formatApproachLog() + "Zadej /disarm pro deaktivaci.", distance);
         }
     }
     else if (_alarmState == AlarmState::PENDING && now - _entryDelayStart >= _entryDelay) {
         _alarmState = AlarmState::TRIGGERED;
         _triggerStartTime = now;
         strncpy(_pendingEvent.reason, "entry_delay_expired", sizeof(_pendingEvent.reason) - 1);
-        // zone/distance/energy preserved from last PENDING event — add uptime
+        // zone/distance/energy z posledního PENDING eventu zachovány — doplnit uptime
         _pendingEvent.uptime_s = now / 1000; fillISOTime(_pendingEvent.iso_time, sizeof(_pendingEvent.iso_time));
         enqueueAlarmEvent();
         DBG("SecMon", "ALARM TRIGGERED!");
-        triggerAlert(NotificationType::ALARM_TRIGGERED, "🚨 ALARM TRIGGERED!", "Entry delay expired!\n" + formatApproachLog(), _pendingEvent.distance_cm);
+        triggerAlert(NotificationType::ALARM_TRIGGERED, "🚨 ALARM TRIGGERED!", "Entry delay vypršel!\n" + formatApproachLog(), _pendingEvent.distance_cm);
         activateSiren();
     }
 
@@ -731,9 +745,9 @@ void SecurityMonitor::clearApproachLog() {
 }
 
 String SecurityMonitor::formatApproachLog() const {
-    if (_approachCount == 0) return "No data";
+    if (_approachCount == 0) return "Žádná data";
 
-    String result = "📍 Approach (" + String(_approachCount) + " entries):\n";
+    String result = "📍 Přiblížení (" + String(_approachCount) + " záznamů):\n";
     uint32_t firstTs = _approachLog[_approachHead].timestamp_s;
     bool isEpoch = firstTs > 1700000000;
 

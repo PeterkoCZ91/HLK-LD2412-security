@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+#include <esp_wifi.h>
 #include <WiFi.h>
 #include <lwip/dns.h>
 #ifndef LITE_BUILD
@@ -43,16 +46,16 @@
 #ifndef FW_VERSION
 #include <Update.h>
 
-#define FW_VERSION "v3.11.0"
+#define FW_VERSION "v3.12.0"
 
-// --- BACKUP NETWORK CONFIGURATION (AP/Failover) ---
+// --- KONFIGURACE ZÁLOŽNÍ SÍTĚ (AP/Failover) ---
 #endif
 #define WDT_TIMEOUT_SECONDS 60
 
 // NTP Config
 const char* ntpServer = "pool.ntp.org";
 
-// Radar UART pins - defined in platformio.ini per board type
+// Radar UART pins - definováno v platformio.ini podle typu desky
 #ifndef RADAR_RX_PIN
 #error "RADAR_RX_PIN not defined! Use correct environment: esp32_board1 or esp32_board2"
 #endif
@@ -471,6 +474,7 @@ void connectivityTask(void* param) {
 }
 
 void setup() {
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector — survive voltage dips, WDT is safety net
     Serial.begin(115200); // Standard speed
     
     zonesMutex = xSemaphoreCreateMutex();
@@ -562,10 +566,10 @@ void setup() {
                 preferences.putString("mqtt_id", KNOWN_DEVICES[i].id);
             }
             
-            // Set Hostname: NVS has priority (user may have changed via GUI), KNOWN_DEVICES is just default
+            // Set Hostname: NVS má prioritu (uživatel mohl změnit přes GUI), KNOWN_DEVICES je jen výchozí hodnota
             String nvsHostname = preferences.getString("hostname", "");
             if (nvsHostname.isEmpty()) {
-                // First boot — use default from table
+                // První boot — použij výchozí z tabulky
                 nvsHostname = KNOWN_DEVICES[i].hostname;
                 preferences.putString("hostname", nvsHostname);
             }
@@ -667,7 +671,9 @@ void setup() {
     // Run radar update in a dedicated task to stabilize UART parsing
     xTaskCreatePinnedToCore(radarTask, "radar_task", 8192, nullptr, 2, &radarTaskHandle, 1);
 
+    delay(100); // Stagger init — let radar task settle before WiFi power spike
     setupWiFi();
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM); // Modem sleep between DTIM beacons — saves 20-50mA idle
     
     DBG("NET", "IP: %s  GW: %s  SN: %s  DNS: %s",
         WiFi.localIP().toString().c_str(),
@@ -681,7 +687,7 @@ void setup() {
         DBG("NET", "mDNS started: %s.local", configManager.getConfig().hostname);
     }
 
-    // DNS fallback — Google 8.8.8.8 as secondary (fix for networks with broken DHCP DNS)
+    // DNS fallback — Google 8.8.8.8 jako sekundární (fix pro sítě s broken DHCP DNS)
     {
         ip_addr_t dns_fallback;
         IP_ADDR4(&dns_fallback, 8, 8, 8, 8);
@@ -804,6 +810,7 @@ void setup() {
             } else if (strcmp(topic, t.alarm_set) == 0) {
                 String cmd = String(payload);
                 if (cmd == "ARM_AWAY") securityMonitor.setArmed(true, false);
+                else if (cmd == "ARM_HOME") securityMonitor.setArmed(true, false, true);
                 else if (cmd == "DISARM") securityMonitor.setArmed(false);
             } else if (strstr(topic, "/supervision/alive") != nullptr) {
                 // Extract peer ID from topic: security/<id>/supervision/alive
@@ -854,7 +861,7 @@ void setup() {
     telegramBot.setSecurityMonitor(&securityMonitor);
     telegramBot.setRebootFlag(&shouldReboot);
 
-    // Load security configuration from NVS
+    // Načti security konfiguraci z NVS
     if (preferences.isKey("sec_antimask"))
         securityMonitor.setAntiMaskTime(preferences.getULong("sec_antimask", DEFAULT_ANTI_MASK_MS));
     
@@ -886,7 +893,8 @@ void setup() {
         // After DMS/watchdog restart, skip exit delay — was already armed
         bool wasAutoRestart = (g_prevRestartCause == "dms_no_mqtt_publish" ||
                                g_prevRestartCause == "wifi_failover_exhausted");
-        securityMonitor.setArmed(true, wasAutoRestart); // immediate if auto-restart
+        bool homeMode = preferences.getBool("sec_home_mode", false);
+        securityMonitor.setArmed(true, wasAutoRestart, homeMode); // immediate if auto-restart
     }
 
     #ifndef LITE_BUILD
@@ -899,10 +907,10 @@ void setup() {
         Serial.println("Start updating " + type);
         if (radarTaskHandle) vTaskSuspend(radarTaskHandle);
         radar.stop();
-        // Telegram notification - best effort, don't wait for response
-        // Network may be busy during OTA
+        // Telegram notifikace - best effort, nečekat na odpověď
+        // Při OTA může být síť vytížená
         if (telegramBot.isEnabled()) {
-            // Short attempt to send, but not critical
+            // Krátký pokus o odeslání, ale nepokládat za kritické
             Serial.println("[OTA] Attempting Telegram notification...");
             telegramBot.sendMessage("⚠️ OTA Update Started...");
         }
@@ -1064,7 +1072,7 @@ void loop() {
                         DBG("SCHED", "Auto-armed at %s", armTime);
                         systemLog.info("Scheduled arm at " + String(armTime));
                         if (telegramBot.isEnabled()) {
-                            telegramBot.sendMessage("🔒 Scheduled arm (" + String(armTime) + ")");
+                            telegramBot.sendMessage("🔒 Automatické zastřežení (" + String(armTime) + ")");
                         }
                     }
                 }
@@ -1075,7 +1083,7 @@ void loop() {
                         DBG("SCHED", "Auto-disarmed at %s", disarmTime);
                         systemLog.info("Scheduled disarm at " + String(disarmTime));
                         if (telegramBot.isEnabled()) {
-                            telegramBot.sendMessage("🔓 Scheduled disarm (" + String(disarmTime) + ")");
+                            telegramBot.sendMessage("🔓 Automatické odstřežení (" + String(disarmTime) + ")");
                         }
                     }
                 }
@@ -1111,7 +1119,7 @@ void loop() {
                 systemLog.info("Auto-arm: no presence " + String(autoArmMin) + "min");
                 eventLog.addEvent(EVT_SECURITY, 0, 0, "Auto-arm (no presence)");
                 if (telegramBot.isEnabled()) {
-                    telegramBot.sendMessage("🔒 Auto-arm: no movement for " + String(autoArmMin) + " min");
+                    telegramBot.sendMessage("🔒 Auto-arm: žádný pohyb " + String(autoArmMin) + " min");
                 }
             }
         }
@@ -1131,32 +1139,32 @@ void loop() {
                 DBG("WiFi", "Failover attempt %d/%d (interval %lus)", failoverAttempts, WIFI_FAILOVER_MAX_ATTEMPTS, currentFailoverInterval / 1000);
 
                 if (!isBackupActive && strlen(configManager.getConfig().backup_ssid) > 0) {
-                    // Switch to backup network
+                    // Přepnout na záložní síť
                     DBG("WiFi", "Switching to backup: %s", configManager.getConfig().backup_ssid);
                     WiFi.disconnect();
                     delay(100);
                     WiFi.begin(configManager.getConfig().backup_ssid, configManager.getConfig().backup_pass);
                     isBackupActive = true;
                 } else if (isBackupActive) {
-                    // Try to return to primary network — use SDK saved credentials (not hardcoded)
+                    // Zkusit se vrátit na primární síť — použij SDK saved credentials (ne hardcoded)
                     DBG("WiFi", "Trying primary network again (SDK saved)...");
                     WiFi.disconnect();
                     delay(100);
                     WiFi.begin(); // Uses SDK-saved credentials from setupWiFi()
                     isBackupActive = false;
                 } else {
-                    // No backup network configured, retry SDK saved primary
+                    // Žádná záložní síť nakonfigurována, zkusit SDK saved primární znovu
                     DBG("WiFi", "No backup configured, retrying saved primary...");
                     WiFi.disconnect();
                     delay(100);
                     WiFi.begin(); // Uses SDK-saved credentials
                 }
 
-                disconnectStart = now; // Reset timer for next attempt
+                disconnectStart = now; // Reset timer pro další pokus
                 // Exponential backoff: double the interval, cap at max
                 currentFailoverInterval = min(currentFailoverInterval * 2, WIFI_FAILOVER_MAX_INTERVAL_MS);
             } else {
-                // Max attempts reached, restart
+                // Max pokusů dosaženo, restart
                 systemLog.error("WiFi failover exhausted - rebooting");
                 safeRestart("wifi_failover_exhausted");
             }
@@ -1231,14 +1239,14 @@ void loop() {
     if (mqttService.connected() && (offlineAlarmOccurred || offlineTamperOccurred)) {
         if (offlineAlarmOccurred) {
             unsigned long diff = (now - offlineAlarmTime) / 1000;
-            String msg = "⚠️ SYNC: ALARM occurred during network outage! (" + String(diff) + "s ago)";
+            String msg = "⚠️ SYNC: Během výpadku sítě došlo k POPLACHU! (před " + String(diff) + "s)";
             DBG("SYNC", "Reporting offline alarm to HA/Telegram");
             notificationService.sendTelegram(msg);
             mqttService.publish("home/security/log", msg.c_str());
         }
         if (offlineTamperOccurred && !offlineAlarmOccurred) {
             // FIX #8: Separate message for non-alarm security events
-            String msg = "⚠️ SYNC: Tamper/blind/loitering detected during network outage (not alarm).";
+            String msg = "⚠️ SYNC: Během výpadku sítě detekován tamper/blind/loitering (ne alarm).";
             DBG("SYNC", "Reporting offline tamper event to HA/Telegram");
             notificationService.sendTelegram(msg);
             mqttService.publish("home/security/log", msg.c_str());
@@ -1247,18 +1255,18 @@ void loop() {
         offlineTamperOccurred = false;
     }
 
-    // Static learn completed — send result via Telegram
+    // Static learn dokončen — pošli výsledek přes Telegram
     if (radar.consumeLearnDone()) {
         JsonDocument learnDoc;
         radar.getLearnResultJson(learnDoc);
-        String learnMsg = "📡 *Static Learn complete*\n";
-        learnMsg += "Samples: " + String((int)learnDoc["static_samples"]) + " / " + String((int)learnDoc["total_samples"]) + "\n";
-        learnMsg += "Static frequency: " + String((int)learnDoc["static_freq_pct"]) + "%\n";
+        String learnMsg = "📡 *Static Learn dokončen*\n";
+        learnMsg += "Vzorků: " + String((int)learnDoc["static_samples"]) + " / " + String((int)learnDoc["total_samples"]) + "\n";
+        learnMsg += "Frekvence statiky: " + String((int)learnDoc["static_freq_pct"]) + "%\n";
         if ((bool)learnDoc["suggest_ready"]) {
-            learnMsg += "✅ Suggested zone: *" + String((int)learnDoc["suggest_min_cm"]) + "–" + String((int)learnDoc["suggest_max_cm"]) + " cm*";
-            learnMsg += " (gate " + String((int)learnDoc["top_gate"]) + ", confidence " + String((int)learnDoc["confidence"]) + "%)";
+            learnMsg += "✅ Navrhovaná zóna: *" + String((int)learnDoc["suggest_min_cm"]) + "–" + String((int)learnDoc["suggest_max_cm"]) + " cm*";
+            learnMsg += " (gate " + String((int)learnDoc["top_gate"]) + ", jistota " + String((int)learnDoc["confidence"]) + "%)";
         } else {
-            learnMsg += "⚠️ No significant static presence found.";
+            learnMsg += "⚠️ Žádná výrazná statika nenalezena.";
         }
         notificationService.sendTelegram(learnMsg);
     }
@@ -1458,7 +1466,7 @@ void loop() {
                 }
             }
 
-            // alarm/event: atomic JSON on PENDING/TRIGGERED
+            // alarm/event: atomický JSON při PENDING/TRIGGERED
             // FIX #5: Peek first, only consume after successful publish
             {
                 AlarmTriggerEvent evt;

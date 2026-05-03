@@ -316,7 +316,7 @@ void MQTTService::publishDiscoveryStep() {
         case 20: {
             char alarmExtra[256];
             snprintf(alarmExtra, sizeof(alarmExtra),
-                "{\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"sup_feat\":[\"arm_away\"]}",
+                "{\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"sup_feat\":[\"arm_away\",\"arm_home\"]}",
                 _topics.alarm_set, _topics.alarm_state);
             publishOneDiscovery("alarm_control_panel", "alarm", "Security Alarm", _topics.alarm_state, "", "mdi:shield-home", "", alarmExtra);
             break;
@@ -358,7 +358,7 @@ void MQTTService::checkCertificateExpiry() {
     #ifdef MQTTS_ENABLED
     #if MQTTS_ENABLED == 1
 
-    // NTP is already configured in setup() - do not reconfigure here
+    // NTP je již nakonfigurováno v setup() - nerekonfigurovat zde
 
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {

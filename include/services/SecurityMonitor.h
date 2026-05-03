@@ -92,8 +92,9 @@ public:
     void setPetImmunity(uint8_t energy) { _petImmunityThreshold = energy; }
 
     // Armed/Disarmed
-    void setArmed(bool armed, bool immediate = false);
+    void setArmed(bool armed, bool immediate = false, bool homeMode = false);
     bool isArmed() const { return _alarmState == AlarmState::ARMED || _alarmState == AlarmState::ARMING || _alarmState == AlarmState::PENDING || _alarmState == AlarmState::TRIGGERED; }
+    bool isHomeMode() const { return _homeMode; }
     AlarmState getAlarmState() const { return _alarmState; }
     const char* getAlarmStateStr() const;
     void setEntryDelay(unsigned long ms) { _entryDelay = ms; }
@@ -120,12 +121,12 @@ public:
     // Siren GPIO
     void setSirenPin(int8_t pin);
 
-    // Enable/Disable toggles (for empty locations - warehouses, cabins, server rooms)
+    // Enable/Disable toggles (pro prázdné lokality - sklady, chaty, serverovny)
     void setAntiMaskEnabled(bool en) { _antiMaskEnabled = en; }
     void setLoiterAlertEnabled(bool en) { _loiterAlertEnabled = en; }
     void setHeartbeatInterval(unsigned long ms) { _heartbeatInterval = ms; }
 
-    // Alarm event (atomic JSON for MQTT — one-shot)
+    // Alarm event (atomický JSON pro MQTT — jednorázový)
     // FIX #5 + #17: All queue ops mutex-protected
     bool hasAlarmEvent() {
         if (_mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(10)) != pdTRUE) return false;
@@ -150,7 +151,7 @@ public:
         if (_mutex) xSemaphoreGive(_mutex);
     }
 
-    // Last alarm event (for API — persistent, not overwritten until a new trigger occurs)
+    // Last alarm event (pro API — persistentní, nepřepisuje se dokud nenastane nový trigger)
     bool hasLastAlarmEvent() const { return _lastAlarmEventValid; }
     const AlarmTriggerEvent& getLastAlarmEvent() const { return _lastAlarmEvent; }
 
@@ -180,6 +181,7 @@ private:
 
     // Armed/Disarmed state
     AlarmState _alarmState = AlarmState::DISARMED;
+    bool _homeMode = false;            // ARMED → reported as armed_home when true, armed_away otherwise
     unsigned long _entryDelay = 30000;
     unsigned long _exitDelay = 30000;
     unsigned long _exitDelayStart = 0;
@@ -204,10 +206,10 @@ private:
     unsigned long _loiterThreshold = 15000;    // Default 15 sec
     uint8_t _petImmunityThreshold = 10;        // Default energy threshold
 
-    // Enable/Disable (for empty locations - warehouses, cabins, server rooms)
-    bool _antiMaskEnabled = false;   // DEFAULT: OFF - most places are occasionally empty
+    // Enable/Disable (pro prázdné lokality - sklady, chaty, serverovny)
+    bool _antiMaskEnabled = false;   // DEFAULT: VYPNUTO - většina míst je občas prázdná
     bool _loiterAlertEnabled = false; // Disabled - fusion handles alerts
-    unsigned long _heartbeatInterval = 14400000; // 4 hours default (not 12h)
+    unsigned long _heartbeatInterval = 14400000; // 4 hodiny default (ne 12h)
 
     // RSSI monitoring
     long _lastRSSI = 0;
@@ -260,7 +262,7 @@ private:
     bool _isLoitering = false;
     unsigned long _loiterStart = 0;
 
-    // Alarm event queue — MQTT (up to 4 events buffered) + API (persistent)
+    // Alarm event queue — MQTT (up to 4 events buffered) + API (persistentní)
     static constexpr uint8_t ALARM_QUEUE_SIZE = 4;
     AlarmTriggerEvent _pendingEvent;  // staging variable for building events
     AlarmTriggerEvent _pendingEvents[ALARM_QUEUE_SIZE];

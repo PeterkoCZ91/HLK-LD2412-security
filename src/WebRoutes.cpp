@@ -102,7 +102,7 @@ void setupTelemetryRoutes() {
         build["tx_pin"]  = RADAR_TX_PIN;
         build["out_pin"] = RADAR_OUT_PIN;
 
-        // Chip info — MAC as unique device identifier
+        // Chip info — MAC jako jednoznačný identifikátor zařízení
         JsonObject chip = doc["chip"].to<JsonObject>();
         chip["model"]      = ESP.getChipModel();
         chip["revision"]   = ESP.getChipRevision();
@@ -140,6 +140,93 @@ void setupTelemetryRoutes() {
 }
 
 void setupConfigRoutes() {
+    // --- Config Export/Import (must be registered before /api/config to avoid prefix shadowing) ---
+    _deps.server->on("/api/config/export", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (!checkAuth(request)) return;
+        JsonDocument doc;
+        doc["mqtt_server"] = String(_deps.config->mqtt_server);
+        doc["mqtt_port"] = String(_deps.config->mqtt_port);
+        doc["mqtt_user"] = strlen(_deps.config->mqtt_user) > 0 ? "***" : "";
+        doc["mqtt_pass"] = strlen(_deps.config->mqtt_pass) > 0 ? "***" : "";
+        doc["mqtt_id"] = String(_deps.config->mqtt_id);
+        doc["hostname"] = String(_deps.config->hostname);
+        doc["auth_user"] = "***";
+        doc["auth_pass"] = "***";
+        doc["bk_ssid"] = String(_deps.config->backup_ssid);
+        doc["bk_pass"] = strlen(_deps.config->backup_pass) > 0 ? "***" : "";
+        doc["radar_res"] = _deps.config->radar_resolution;
+        doc["led_start"] = _deps.config->startup_led_sec;
+        doc["hold_time"] = _deps.radar->getHoldTime();
+        doc["pet_immunity"] = _deps.radar->getMinMoveEnergy();
+        if (_deps.zonesMutex && xSemaphoreTake(*_deps.zonesMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            doc["zones"] = *_deps.zonesJson;
+            xSemaphoreGive(*_deps.zonesMutex);
+        }
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+
+    _deps.server->on("/api/config/import", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!checkAuth(request)) return;
+
+        const char* buf = (const char*)request->_tempObject;
+        if (!buf) {
+            request->send(413, "application/json", "{\"error\":\"Request body too large (max 4096 bytes)\"}");
+            return;
+        }
+
+        char* importData = (char*)request->_tempObject;
+        if (importData) {
+            if (strlen(importData) > 0) {
+                JsonDocument doc;
+                DeserializationError err = deserializeJson(doc, importData);
+                if (err) {
+                    free(importData);
+                    request->_tempObject = nullptr;
+                    request->send(400, "text/plain", "Invalid JSON");
+                    return;
+                }
+
+                auto& cfg = *_deps.config;
+                if (doc["mqtt_server"].is<String>()) doc["mqtt_server"].as<String>().toCharArray(cfg.mqtt_server, 60);
+                if (doc["mqtt_port"].is<String>()) doc["mqtt_port"].as<String>().toCharArray(cfg.mqtt_port, 6);
+                if (doc["mqtt_user"].is<String>() && doc["mqtt_user"].as<String>() != "***") doc["mqtt_user"].as<String>().toCharArray(cfg.mqtt_user, 40);
+                if (doc["mqtt_pass"].is<String>() && doc["mqtt_pass"].as<String>() != "***") doc["mqtt_pass"].as<String>().toCharArray(cfg.mqtt_pass, 40);
+                if (doc["mqtt_id"].is<String>()) doc["mqtt_id"].as<String>().toCharArray(cfg.mqtt_id, 40);
+                if (doc["auth_user"].is<String>() && doc["auth_user"].as<String>() != "***") doc["auth_user"].as<String>().toCharArray(cfg.auth_user, 40);
+                if (doc["auth_pass"].is<String>() && doc["auth_pass"].as<String>() != "***") doc["auth_pass"].as<String>().toCharArray(cfg.auth_pass, 40);
+                if (doc["bk_ssid"].is<String>()) doc["bk_ssid"].as<String>().toCharArray(cfg.backup_ssid, 64);
+                if (doc["bk_pass"].is<String>() && doc["bk_pass"].as<String>() != "***") doc["bk_pass"].as<String>().toCharArray(cfg.backup_pass, 64);
+                if (doc["radar_res"].is<float>()) cfg.radar_resolution = doc["radar_res"].as<float>();
+                if (doc["led_start"].is<uint16_t>()) cfg.startup_led_sec = doc["led_start"].as<uint16_t>();
+                _deps.configManager->save();
+                if (doc["hold_time"].is<unsigned long>()) _deps.preferences->putULong("hold_time", doc["hold_time"].as<unsigned long>());
+                if (doc["zones"].is<String>()) _deps.preferences->putString("zones_json", doc["zones"].as<String>());
+            }
+
+            free(importData);
+            request->_tempObject = nullptr;
+        }
+
+        request->send(200, "text/plain", "Config received, applying and rebooting...");
+        *_deps.shouldReboot = true;
+    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+        if (!checkAuth(request)) return;
+
+        if (index == 0) {
+            if (total > 4096) return;
+            request->_tempObject = malloc(total + 1);
+            if (request->_tempObject) ((char*)request->_tempObject)[0] = '\0';
+        }
+
+        char* buf = (char*)request->_tempObject;
+        if (buf) {
+            memcpy(buf + index, data, len);
+            buf[index + len] = '\0';
+        }
+    });
+
     // --- Global Config ---
     _deps.server->on("/api/config", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (!checkAuth(request)) return;
@@ -272,43 +359,36 @@ void setupConfigRoutes() {
     _deps.server->on("/api/mqtt/config", HTTP_POST, [](AsyncWebServerRequest *request) {
         if (!checkAuth(request)) return;
 
-        bool en = true;
-        if (request->hasParam("enabled")) {
-             en = (request->getParam("enabled")->value() == "1");
-             _deps.preferences->putBool("mqtt_en", en);
-             _deps.config->mqtt_enabled = en;
-        }
-
         if (request->hasParam("server")) {
             String s = request->getParam("server")->value();
-            _deps.preferences->putString("mqtt_server", s);
             s.toCharArray(_deps.config->mqtt_server, 60);
 
             if (request->hasParam("port")) {
                 String p = request->getParam("port")->value();
-                _deps.preferences->putString("mqtt_port", p);
                 p.toCharArray(_deps.config->mqtt_port, 6);
             }
             if (request->hasParam("user")) {
                 String u = request->getParam("user")->value();
                 if (u != "***") {
-                    _deps.preferences->putString("mqtt_user", u);
                     u.toCharArray(_deps.config->mqtt_user, 40);
                 }
             }
             if (request->hasParam("pass")) {
                 String pw = request->getParam("pass")->value();
                 if (pw != "***") {
-                    _deps.preferences->putString("mqtt_pass", pw);
                     pw.toCharArray(_deps.config->mqtt_pass, 40);
                 }
             }
 
             String id = request->hasParam("id") ? request->getParam("id")->value() : String(_deps.config->mqtt_id);
-            _deps.preferences->putString("mqtt_id", id);
             id.toCharArray(_deps.config->mqtt_id, 40);
         }
 
+        if (request->hasParam("enabled")) {
+            _deps.config->mqtt_enabled = (request->getParam("enabled")->value() == "1");
+        }
+
+        _deps.configManager->save();
         request->send(200, "text/plain", "Saved");
         *_deps.shouldReboot = true;
     });
@@ -472,92 +552,6 @@ void setupConfigRoutes() {
         }
     });
 
-    // --- Config Export/Import ---
-    _deps.server->on("/api/config/export", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if (!checkAuth(request)) return;
-        JsonDocument doc;
-        doc["mqtt_server"] = String(_deps.config->mqtt_server);
-        doc["mqtt_port"] = String(_deps.config->mqtt_port);
-        doc["mqtt_user"] = strlen(_deps.config->mqtt_user) > 0 ? "***" : "";
-        doc["mqtt_pass"] = strlen(_deps.config->mqtt_pass) > 0 ? "***" : "";
-        doc["mqtt_id"] = String(_deps.config->mqtt_id);
-        doc["hostname"] = String(_deps.config->hostname);
-        doc["auth_user"] = "***";
-        doc["auth_pass"] = "***";
-        doc["bk_ssid"] = String(_deps.config->backup_ssid);
-        doc["bk_pass"] = strlen(_deps.config->backup_pass) > 0 ? "***" : "";
-        doc["radar_res"] = _deps.config->radar_resolution;
-        doc["led_start"] = _deps.config->startup_led_sec;
-        doc["hold_time"] = _deps.radar->getHoldTime();
-        doc["pet_immunity"] = _deps.radar->getMinMoveEnergy();
-        if (_deps.zonesMutex && xSemaphoreTake(*_deps.zonesMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            doc["zones"] = *_deps.zonesJson;
-            xSemaphoreGive(*_deps.zonesMutex);
-        }
-        
-        String response;
-        serializeJson(doc, response);
-        request->send(200, "application/json", response);
-    });
-
-    _deps.server->on("/api/config/import", HTTP_POST, [](AsyncWebServerRequest *request) {
-        if (!checkAuth(request)) return;
-
-        const char* buf = (const char*)request->_tempObject;
-        if (!buf) {
-            request->send(413, "application/json", "{\"error\":\"Request body too large (max 4096 bytes)\"}");
-            return;
-        }
-
-        char* importData = (char*)request->_tempObject;
-        if (importData) {
-            if (strlen(importData) > 0) {
-                JsonDocument doc;
-                DeserializationError err = deserializeJson(doc, importData);
-                if (err) {
-                    free(importData);
-                    request->_tempObject = nullptr;
-                    request->send(400, "text/plain", "Invalid JSON");
-                    return;
-                }
-
-                if (doc["mqtt_server"].is<String>()) _deps.preferences->putString("mqtt_server", doc["mqtt_server"].as<String>());
-                if (doc["mqtt_port"].is<String>()) _deps.preferences->putString("mqtt_port", doc["mqtt_port"].as<String>());
-                // Skip masked "***" values — don't overwrite real credentials with mask
-                if (doc["mqtt_user"].is<String>() && doc["mqtt_user"].as<String>() != "***") _deps.preferences->putString("mqtt_user", doc["mqtt_user"].as<String>());
-                if (doc["mqtt_pass"].is<String>() && doc["mqtt_pass"].as<String>() != "***") _deps.preferences->putString("mqtt_pass", doc["mqtt_pass"].as<String>());
-                if (doc["mqtt_id"].is<String>()) _deps.preferences->putString("mqtt_id", doc["mqtt_id"].as<String>());
-                if (doc["auth_user"].is<String>() && doc["auth_user"].as<String>() != "***") _deps.preferences->putString("auth_user", doc["auth_user"].as<String>());
-                if (doc["auth_pass"].is<String>() && doc["auth_pass"].as<String>() != "***") _deps.preferences->putString("auth_pass", doc["auth_pass"].as<String>());
-                if (doc["bk_ssid"].is<String>()) _deps.preferences->putString("bk_ssid", doc["bk_ssid"].as<String>());
-                if (doc["bk_pass"].is<String>() && doc["bk_pass"].as<String>() != "***") _deps.preferences->putString("bk_pass", doc["bk_pass"].as<String>());
-                if (doc["radar_res"].is<float>()) _deps.preferences->putFloat("radar_res", doc["radar_res"].as<float>());
-                if (doc["led_start"].is<uint16_t>()) _deps.preferences->putUInt("led_start", doc["led_start"].as<uint16_t>());
-                if (doc["hold_time"].is<unsigned long>()) _deps.preferences->putULong("hold_time", doc["hold_time"].as<unsigned long>());
-                if (doc["zones"].is<String>()) _deps.preferences->putString("zones_json", doc["zones"].as<String>());
-            }
-
-            free(importData);
-            request->_tempObject = nullptr;
-        }
-
-        request->send(200, "text/plain", "Config received, applying and rebooting...");
-        *_deps.shouldReboot = true;
-    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
-        if (!checkAuth(request)) return;
-
-        if (index == 0) {
-            if (total > 4096) return;  // Limit body size
-            request->_tempObject = malloc(total + 1);
-            if (request->_tempObject) ((char*)request->_tempObject)[0] = '\0';
-        }
-
-        char* buf = (char*)request->_tempObject;
-        if (buf) {
-            memcpy(buf + index, data, len);
-            buf[index + len] = '\0';
-        }
-    });
 }
 
 void setupSecurityRoutes() {
@@ -734,7 +728,7 @@ void setupSystemRoutes() {
             int stat = request->getParam("stat")->value().toInt();
 
             if (gate >= 0 && gate <= 13 && mov >= 0 && mov <= 100 && stat >= 0 && stat <= 100) {
-                // Get current values and modify only one gate
+                // Získat aktuální hodnoty a upravit jen jedno hradlo
                 const uint8_t* currentMov = _deps.radar->getMotionSensitivityArray();
                 const uint8_t* currentStat = _deps.radar->getStaticSensitivityArray();
 
