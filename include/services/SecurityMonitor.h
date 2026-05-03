@@ -212,10 +212,11 @@ private:
     unsigned long _heartbeatInterval = 14400000; // 4 hodiny default (ne 12h)
 
     // RSSI monitoring
-    long _lastRSSI = 0;
     long _baselineRSSI = 0;
+    float _rssiEWMA = 0.0f;           // Exponentially weighted moving average (α=0.2, ~5s window)
+    uint8_t _rssiDropCount = 0;       // Consecutive samples confirming drop (require ≥2 to alert)
     int _rssiThreshold = -80;         // Below this = weak signal
-    int _rssiDropThreshold = 20;      // Sudden drop > this = potential jamming
+    int _rssiDropThreshold = 20;      // Sudden drop ≥ this vs EWMA baseline = potential jamming
     unsigned long _rssiStableTime = 0;
     unsigned long _lowRssiStartTime = 0;
     unsigned long _startTime = 0;        // For overflow-safe startup checks

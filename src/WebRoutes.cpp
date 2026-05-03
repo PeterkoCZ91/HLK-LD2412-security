@@ -1016,8 +1016,13 @@ void setupLogRoutes() {
 
     _deps.server->on("/api/events", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (!checkAuth(request)) return;
+        int typeFilter = -1;
+        if (request->hasParam("type")) {
+            int v = request->getParam("type")->value().toInt();
+            if (v >= 0 && v <= 5) typeFilter = v;
+        }
         JsonDocument doc;
-        _deps.eventLog->getEventsJSON(doc);
+        _deps.eventLog->getEventsJSON(doc, typeFilter);
         String response;
         serializeJson(doc, response);
         request->send(200, "application/json", response);
@@ -1034,7 +1039,7 @@ void setupLogRoutes() {
         if (!checkAuth(request)) return;
         JsonDocument doc;
         _deps.eventLog->getEventsJSON(doc);
-        JsonArray arr = doc.as<JsonArray>();
+        JsonArray arr = doc["events"].as<JsonArray>();
 
         String csv = "timestamp,type,distance_cm,energy,message\r\n";
         for (JsonObject obj : arr) {

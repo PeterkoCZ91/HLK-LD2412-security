@@ -150,16 +150,20 @@ void EventLog::clear() {
     DBG("EventLog", "Cleared");
 }
 
-void EventLog::getEventsJSON(JsonDocument& doc) {
-    JsonArray arr = doc.to<JsonArray>();
-
+void EventLog::getEventsJSON(JsonDocument& doc, int typeFilter) {
     if (_mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
+
+    JsonObject root = doc.to<JsonObject>();
+    JsonArray arr = root["events"].to<JsonArray>();
+    int total = 0;
 
     for (size_t i = 0; i < _count; i++) {
         size_t logical_idx = _count - 1 - i;
         size_t physical_idx = (_head + logical_idx) % _capacity;
-
         LogEvent& e = _buffer[physical_idx];
+
+        if (typeFilter >= 0 && e.type != (uint8_t)typeFilter) continue;
+        total++;
 
         JsonObject obj = arr.add<JsonObject>();
         obj["ts"] = e.timestamp;
@@ -168,6 +172,7 @@ void EventLog::getEventsJSON(JsonDocument& doc) {
         obj["en"] = e.energy;
         obj["msg"] = e.message;
     }
+    root["total"] = total;
 
     if (_mutex) xSemaphoreGive(_mutex);
 }

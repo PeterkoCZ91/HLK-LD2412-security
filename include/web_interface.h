@@ -140,6 +140,9 @@ const char index_html[] PROGMEM = R"rawliteral(
       add_zone: "+ Přidat Zónu", save_zones: "💾 Uložit Zóny",
       timeline_title: "TIMELINE", evt_table_btn: "Tabulka", delete: "Smazat",
       evt_th_time: "Čas", evt_th_type: "Typ", evt_th_msg: "Zpráva", evt_th_dist: "Vzdál.",
+      filter_all: "Vše", filter_alarm: "Alarm", filter_move: "Pohyb",
+      filter_tamper: "Tamper", filter_hb: "Heartbeat", filter_sys: "Systém", filter_net: "Síť",
+      total: "událostí",
       fw_update_title: "Aktualizace FW", upload_fw: "Nahrát Firmware",
       default_pass_warn: "⚠️ Výchozí heslo admin/admin — změňte v sekci Síť &amp; Cloud",
       no_events: "Žádné události", del_history: "Smazat celou historii?",
@@ -230,6 +233,9 @@ const char index_html[] PROGMEM = R"rawliteral(
       add_zone: "+ Add Zone", save_zones: "💾 Save Zones",
       timeline_title: "TIMELINE", evt_table_btn: "Table", delete: "Delete",
       evt_th_time: "Time", evt_th_type: "Type", evt_th_msg: "Message", evt_th_dist: "Dist.",
+      filter_all: "All", filter_alarm: "Alarm", filter_move: "Movement",
+      filter_tamper: "Tamper", filter_hb: "Heartbeat", filter_sys: "System", filter_net: "Network",
+      total: "events",
       fw_update_title: "Firmware Update", upload_fw: "Upload Firmware",
       default_pass_warn: "⚠️ Default password admin/admin — change in Network &amp; Cloud",
       no_events: "No events", del_history: "Delete entire history?",
@@ -583,9 +589,21 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         <!-- TAB 5: EVENTS (Timeline) -->
         <div id="tab5" class="hidden">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
-                <div class="section-title" style="margin:0; border:none" data-i18n="timeline_title">TIMELINE</div>
-                <div style="display:flex; gap:5px">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:6px">
+                <div style="display:flex; align-items:center; gap:8px">
+                    <div class="section-title" style="margin:0; border:none" data-i18n="timeline_title">TIMELINE</div>
+                    <span id="evt_total" style="font-size:0.75rem; color:#666"></span>
+                </div>
+                <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap">
+                    <select id="evt_filter" onchange="loadEvents()" style="width:auto; padding:4px 8px; font-size:0.8rem">
+                        <option value="-1" data-i18n="filter_all">Vše</option>
+                        <option value="5" data-i18n="filter_alarm">Alarm</option>
+                        <option value="1" data-i18n="filter_move">Pohyb</option>
+                        <option value="2" data-i18n="filter_tamper">Tamper</option>
+                        <option value="4" data-i18n="filter_hb">Heartbeat</option>
+                        <option value="0" data-i18n="filter_sys">Systém</option>
+                        <option value="3" data-i18n="filter_net">Síť</option>
+                    </select>
                     <button onclick="toggleEvtView()" id="evt_toggle" class="sec" style="width:auto; padding:5px 10px; margin:0" data-i18n="evt_table_btn">Table</button>
                     <button onclick="clearEvents()" class="warn" style="width:auto; padding:5px 10px; margin:0" data-i18n="delete">Delete</button>
                 </div>
@@ -863,10 +881,15 @@ function toggleEvtView() {
 }
 
 function loadEvents() {
-    fetch('/api/events').then(r=>r.json()).then(d => {
+    let typeFilter = $('evt_filter') ? $('evt_filter').value : '-1';
+    fetch('/api/events?type=' + typeFilter).then(r=>r.json()).then(d => {
+        let events = d.events || [];
+        let total = d.total || 0;
+        $('evt_total').textContent = total > 0 ? (total + ' ' + t('total')) : '';
+
         // Table view
         let h = '';
-        d.forEach(e => {
+        events.forEach(e => {
             const m = EVT_META[e.type] || EVT_META[0];
             h += `<tr style="border-bottom:1px solid #222">
                 <td style="padding:5px; white-space:nowrap">${evtTime(e.ts)}</td>
@@ -879,10 +902,10 @@ function loadEvents() {
 
         // Timeline view
         let tl = '';
-        if (d.length === 0) {
+        if (events.length === 0) {
             tl = `<div style="text-align:center; padding:20px; color:#666">${t('no_events')}</div>`;
         } else {
-            d.forEach(e => {
+            events.forEach(e => {
                 const m = EVT_META[e.type] || EVT_META[0];
                 const distStr = e.dist > 0 ? ` · ${e.dist}cm` : '';
                 tl += `<div style="position:relative; padding:8px 0 8px 20px; border-left:2px solid ${m.color}; margin-left:0">
@@ -1306,7 +1329,7 @@ function updateAlarmUI(state) {
     let btn = $('btn_arm');
     if(state === 'disarmed') { badge.innerText = t('disarmed'); badge.style.color='#888'; btn.innerText=t('arm'); btn.style.background='#b00020'; }
     else if(state === 'arming') { badge.innerText = t('arming'); badge.style.color='orange'; btn.innerText=t('disarm'); btn.style.background='#3700b3'; }
-    else if(state === 'armed_away') { badge.innerText = t('armed'); badge.style.color='#00ff00'; btn.innerText=t('disarm'); btn.style.background='#3700b3'; }
+    else if(state === 'armed_away' || state === 'armed_home') { badge.innerText = t('armed'); badge.style.color='#00ff00'; btn.innerText=t('disarm'); btn.style.background='#3700b3'; }
     else if(state === 'pending') { badge.innerText = t('pending'); badge.style.color='orange'; btn.innerText=t('disarm'); btn.style.background='#3700b3'; }
     else if(state === 'triggered') { badge.innerText = t('triggered'); badge.style.color='red'; btn.innerText=t('disarm'); btn.style.background='#3700b3'; }
 }

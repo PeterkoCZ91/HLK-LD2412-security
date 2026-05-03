@@ -35,8 +35,9 @@ public:
     void flushNow();  // FIX #16: Bypass rate-limit for critical events
     void clear();
     
-    // Fill a JsonDocument with events
-    void getEventsJSON(JsonDocument& doc);
+    // Fill a JsonDocument with events. typeFilter -1 = all, 0-5 = specific EventType.
+    // Format: { "total": N, "events": [...] }
+    void getEventsJSON(JsonDocument& doc, int typeFilter = -1);
 
 private:
     void loadFromDisk();

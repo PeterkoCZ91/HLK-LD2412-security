@@ -46,8 +46,9 @@ void SecurityMonitor::begin(NotificationService* notifService, MQTTService* mqtt
         strncpy(_deviceLabel, deviceLabel, sizeof(_deviceLabel) - 1);
         _deviceLabel[sizeof(_deviceLabel) - 1] = '\0';
     }
-    _lastRSSI = WiFi.RSSI();
-    _baselineRSSI = _lastRSSI;
+    long initialRSSI = WiFi.RSSI();
+    _baselineRSSI = initialRSSI;
+    _rssiEWMA = (float)initialRSSI;
     _startTime = millis();
     DBG("SecMon", "Security Monitor initialized (label: %s)", _deviceLabel);
     DBG("SecMon", "Baseline RSSI: %ld dBm", _baselineRSSI);
@@ -196,35 +197,47 @@ void SecurityMonitor::checkRSSIAnomaly(long currentRSSI) {
     // Establish baseline after 30 seconds of stable operation
     if (!_rssiBaselineEstablished && (now - _startTime) > INTERVAL_RSSI_BASELINE_MS) {
         _baselineRSSI = currentRSSI;
+        _rssiEWMA = (float)currentRSSI;
         _rssiBaselineEstablished = true;
         _rssiStableTime = now;
         DBG("SecMon", "RSSI baseline established: %ld dBm", _baselineRSSI);
     }
 
-    // Check for sudden RSSI drop (potential WiFi jamming)
-    long rssiDelta = _lastRSSI - currentRSSI;
+    // Check for sudden RSSI drop (potential WiFi jamming).
+    // EWMA (α=0.2) smooths normal fluctuations; compare each raw sample against
+    // the smoothed baseline BEFORE updating it. Require 2 consecutive qualifying
+    // samples to confirm (eliminates single noisy spikes without missing real drops).
+    if (_rssiBaselineEstablished) {
+        float prevEWMA = _rssiEWMA;
+        _rssiEWMA = 0.8f * _rssiEWMA + 0.2f * (float)currentRSSI;
 
-    if (rssiDelta > _rssiDropThreshold && _rssiBaselineEstablished) {
-        // Sudden drop detected
-        if (now - _lastWiFiAnomalyAlert > COOLDOWN_WIFI_ANOMALY_MS) {
-            String msg = "Sudden RSSI drop detected!";
-            String details = "Previous: " + String(_lastRSSI) + " dBm\n";
-            details += "Current: " + String(currentRSSI) + " dBm\n";
-            details += "Drop: " + String(rssiDelta) + " dBm";
+        long rssiDelta = (long)prevEWMA - currentRSSI;
 
-            DBG("SecMon", "WiFi Anomaly: RSSI dropped by %ld dBm", rssiDelta);
-            triggerAlert(NotificationType::WIFI_ANOMALY, msg, details);
-            _lastWiFiAnomalyAlert = now;
+        if (rssiDelta >= _rssiDropThreshold) {
+            _rssiDropCount++;
+            if (_rssiDropCount >= 2 && now - _lastWiFiAnomalyAlert > COOLDOWN_WIFI_ANOMALY_MS) {
+                String msg = "Sudden RSSI drop detected!";
+                String details = "Baseline: " + String((int)prevEWMA) + " dBm\n";
+                details += "Current: " + String(currentRSSI) + " dBm\n";
+                details += "Drop: " + String(rssiDelta) + " dBm";
 
-            _lastEvent.wifi_jamming_detected = true;
-            _lastEvent.last_event_time = now;
+                DBG("SecMon", "WiFi Anomaly: RSSI dropped by %ld dBm vs baseline", rssiDelta);
+                triggerAlert(NotificationType::WIFI_ANOMALY, msg, details);
+                _lastWiFiAnomalyAlert = now;
+                _rssiDropCount = 0;
+
+                _lastEvent.wifi_jamming_detected = true;
+                _lastEvent.last_event_time = now;
+            }
+        } else {
+            _rssiDropCount = 0;
         }
     }
 
     // Check for critically low RSSI (Sustained)
     if (currentRSSI < _rssiThreshold) {
         if (_lowRssiStartTime == 0) _lowRssiStartTime = now;
-        
+
         // Only alert if sustained for > 2 minutes
         if (now - _lowRssiStartTime > TIMEOUT_LOW_RSSI_SUSTAINED_MS) {
             if (!_lastEvent.low_rssi && now - _lastWiFiAnomalyAlert > COOLDOWN_WIFI_ANOMALY_MS) {
@@ -241,11 +254,9 @@ void SecurityMonitor::checkRSSIAnomaly(long currentRSSI) {
             }
         }
     } else {
-        _lowRssiStartTime = 0; // Reset timer
+        _lowRssiStartTime = 0;
         _lastEvent.low_rssi = false;
     }
-
-    _lastRSSI = currentRSSI;
 }
 
 void SecurityMonitor::checkTamperState(bool isTamper) {

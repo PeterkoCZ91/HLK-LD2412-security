@@ -46,7 +46,7 @@
 #ifndef FW_VERSION
 #include <Update.h>
 
-#define FW_VERSION "v3.12.0"
+#define FW_VERSION "v3.12.1"
 
 // --- KONFIGURACE ZÁLOŽNÍ SÍTĚ (AP/Failover) ---
 #endif
