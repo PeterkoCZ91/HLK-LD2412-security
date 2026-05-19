@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions (questions, ideas, general help)
+    url: https://github.com/PeterkoCZ91/HLK-LD2412-security/discussions
+    about: For usage questions, setup help, and ideas — not bug reports.
+  - name: Home Assistant + MQTT integration
+    url: https://github.com/PeterkoCZ91/HLK-LD2412-security/blob/main/README.md#home-assistant
+    about: Check the README first — most HA questions are answered there.
+  - name: Sensor firmware quirks (HLK-LD2412)
+    url: https://github.com/PeterkoCZ91/HLK-LD2412-security/blob/main/README.md#sensor-firmware-quirks
+    about: Known limitations of the HLK-LD2412 sensor firmware (eng mode, baud rate, resolution).

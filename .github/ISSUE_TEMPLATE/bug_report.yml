@@ -1,0 +1,110 @@
+name: Bug report
+description: Report a problem with the firmware, web UI, Home Assistant integration, or OTA flow.
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in as much as you can — the more context, the faster it gets fixed.
+
+        **Before filing:** check [Known Issues & Limitations](https://github.com/PeterkoCZ91/HLK-LD2412-security/blob/main/README.md#known-issues--limitations) and [Troubleshooting](https://github.com/PeterkoCZ91/HLK-LD2412-security/blob/main/README.md#troubleshooting) in the README.
+
+  - type: input
+    id: fw_version
+    attributes:
+      label: Firmware version
+      description: From the web dashboard footer or `/api/health` → `version`.
+      placeholder: "v3.12.1"
+    validations:
+      required: true
+
+  - type: input
+    id: sensor_fw
+    attributes:
+      label: Sensor firmware version
+      description: HLK-LD2412 sensor FW — shown in the web dashboard Info panel or `/api/telemetry` → `fw_major`/`fw_minor`.
+      placeholder: "V1.26"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: build_env
+    attributes:
+      label: Build environment
+      options:
+        - esp32_type_B (RX=18, TX=19, OUT=21)
+        - esp32_type_A (RX=16, TX=17)
+        - production
+        - custom / other
+        - pre-built binary / unsure
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: ESP32 board model and any wiring notes.
+      placeholder: "ESP32-WROOM-32 dev board + HLK-LD2412"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug. If alarm / detection related, include approximate timestamps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic snapshots
+      description: |
+        Paste the JSON output of these endpoints (redact SSIDs / IPs / MACs you don't want public):
+        ```
+        curl http://<device-ip>/api/health
+        curl http://<device-ip>/api/telemetry
+        ```
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Serial / system logs (optional)
+      description: Paste relevant serial monitor output or Home Assistant logs.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true
+        - label: I'm running an official release or a commit from this repo (not a fork with unrelated changes).
+          required: true
