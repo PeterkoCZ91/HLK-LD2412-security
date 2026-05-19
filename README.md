@@ -2,7 +2,7 @@
 
 **ESP32 + HLK-LD2412 24 GHz FMCW mmWave radar — full security alarm system**
 
-[![Version](https://img.shields.io/badge/version-v3.12.1-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v3.12.2-blue)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32-green)](platformio.ini)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 

@@ -267,9 +267,9 @@ void SecurityMonitor::checkTamperState(bool isTamper) {
         _tamperStartTime = now;
 
         if (now - _lastTamperAlert > COOLDOWN_TAMPER_ALERT_MS) {
-            String msg = "🚨 TAMPER ALERT! Sensor may be obstructed or tampered with.";
-            String details = "Immediate action required!\n";
-            details += "Check sensor placement and surroundings.";
+            String msg = "🚨 SABOTÁŽ: zakrytý senzor";
+            String details = "Vyžadována okamžitá kontrola.\n";
+            details += "Zkontrolujte umístění senzoru a okolí.";
 
             DBG("SecMon", "TAMPER DETECTED!");
             triggerAlert(NotificationType::TAMPER_ALERT, msg, details);
@@ -378,7 +378,7 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
 
                 // POUZE pokud je anti-masking ZAPNUTÝ, pošli notifikaci
                 if (_antiMaskEnabled) {
-                    String msg = "⚠️ ANTI-MASKING: Sensor nedetekuje žádnou aktivitu!";
+                    String msg = "⚠️ ANTI-MASK: bez aktivity";
                     String details = "Možná sabotáž (zakrytí sensoru) nebo prázdná místnost.\n";
                     details += "Doba ticha: " + String(_antiMaskThreshold / MS_PER_MINUTE) + " min";
                     triggerAlert(NotificationType::TAMPER_ALERT, msg, details);
@@ -402,7 +402,7 @@ void SecurityMonitor::processRadarData(uint16_t distance, uint8_t move_energy, u
         unsigned long uptimeHours = millis() / MS_PER_HOUR;
         unsigned long uptimeDays = uptimeHours / 24;
 
-        String msg = "🟢 Heartbeat: ONLINE & STŘEŽÍM";
+        String msg = "🟢 ONLINE, střežím";
         String details = "Uptime: ";
         if (uptimeDays > 0) {
             details += String(uptimeDays) + "d " + String(uptimeHours % 24) + "h";

@@ -169,6 +169,10 @@ const char index_html[] PROGMEM = R"rawliteral(
       learn_apply: "Použít",
       learn_no_static: "⚠️ Žádná výrazná statika nenalezena",
       coverage: "Pokrytí", resolution: "Rozlišení hradlo",
+      min_range: "Min. dosah (hradlo)", max_range: "Max. dosah (hradlo)",
+      factory_reset_btn: "Reset MW", realtime_ok: "Realtime OK",
+      detected: "DETEKCE", hold: "DRŽÍM", idle: "KLID", tamper_state: "SABOTÁŽ!",
+      event_timeline_btn: "Timeline", min_chars: "Min. 4 znaky",
       starting: "Spouštím...",
       saved: "Uloženo", ok_btn: "OK",
     },
@@ -262,14 +266,21 @@ const char index_html[] PROGMEM = R"rawliteral(
       learn_apply: "Apply",
       learn_no_static: "⚠️ No significant static found",
       coverage: "Coverage", resolution: "Resolution gate",
+      min_range: "Min Range (Gate)", max_range: "Max Range (Gate)",
+      factory_reset_btn: "Reset MW", realtime_ok: "Realtime OK",
+      detected: "DETECTION", hold: "HOLD", idle: "IDLE", tamper_state: "TAMPER!",
+      event_timeline_btn: "Timeline", min_chars: "Min. 4 chars",
       starting: "Starting...",
       saved: "Saved", ok_btn: "OK",
     }
   };
-  let LANG = localStorage.getItem('lang') || 'en';
+  const DEFAULT_LANG = 'en';
+  let LANG = localStorage.getItem('lang') || DEFAULT_LANG;
+  if (!I18N[LANG]) LANG = DEFAULT_LANG;
   function t(k) { return (I18N[LANG] && I18N[LANG][k]) || (I18N.en[k]) || k; }
   function setLang(l) { LANG = l; localStorage.setItem('lang', l); applyLang(); }
   function applyLang() {
+    document.documentElement.lang = LANG;
     document.querySelectorAll('[data-i18n]').forEach(el => {
       let k = el.getAttribute('data-i18n');
       if (el.tagName === 'INPUT') el.placeholder = t(k);
@@ -281,7 +292,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   }
   </script>
 </head>
-<body onload="applyLang()">
+<body>
 
   <h2>
     LD2412 <span style="font-size:0.6em; color:#666" id="fw_ver">...</span>
@@ -331,7 +342,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div style="display:flex; gap:5px; margin-top:10px; flex-wrap: wrap;">
             <button class="sec" style="flex:1; min-width:80px;" onclick="api('radar/restart', {method:'POST'})" data-i18n="restart_radar">Restart Radar</button>
             <button class="sec" style="flex:1; min-width:80px;" onclick="if(confirm(t('restart_esp_confirm'))) api('restart', {method:'POST'})" data-i18n="restart_esp">Restart ESP</button>
-            <button class="warn" style="flex:1; min-width:80px;" onclick="if(confirm(t('factory_reset_confirm'))) api('radar/factory_reset', {method:'POST'})">Reset MW</button>
+            <button class="warn" style="flex:1; min-width:80px;" onclick="if(confirm(t('factory_reset_confirm'))) api('radar/factory_reset', {method:'POST'})" data-i18n="factory_reset_btn">Reset MW</button>
         </div>
     </div>
 
@@ -355,11 +366,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             </div>
 
             <div class="row-input">
-                <span style="flex:1">Min Range (Gate)</span>
+                <span style="flex:1" data-i18n="min_range">Min Range (Gate)</span>
                 <input type="number" id="i_min" min="0" max="13" style="width:60px" onchange="saveBasic()">
             </div>
             <div class="row-input">
-                <span style="flex:1">Max Range (Gate)</span>
+                <span style="flex:1" data-i18n="max_range">Max Range (Gate)</span>
                 <input type="number" id="i_max" min="1" max="13" style="width:60px" onchange="saveBasic()">
             </div>
 
@@ -689,11 +700,13 @@ function connectSSE() {
     evtSource.onopen = () => {
         console.log('SSE connected');
         $('sse_icon').className = 'icon ok';
-        $('sse_icon').title = 'Realtime OK';
+        $('sse_icon').title = t('realtime_ok');
     };
 }
 
 function init() {
+    applyLang();
+
     // SSE Connection with auto-reconnect
     connectSSE();
 
@@ -763,10 +776,10 @@ function updateUI(d) {
 
     let st = t('loading');
     let stColor = "#888";
-    if(d.state === "detected") { st = "DETECTION"; stColor = "var(--accent)"; }
-    else if(d.state === "hold") { st = "HOLD"; stColor = "#bb86fc"; }
-    else if(d.state === "idle") { st = "IDLE"; stColor = "#888"; }
-    if(d.tamper) { st = "TAMPER!"; stColor = "var(--warn)"; }
+    if(d.state === "detected") { st = t('detected'); stColor = "var(--accent)"; }
+    else if(d.state === "hold") { st = t('hold'); stColor = "#bb86fc"; }
+    else if(d.state === "idle") { st = t('idle'); stColor = "#888"; }
+    if(d.tamper) { st = t('tamper_state'); stColor = "var(--warn)"; }
     $('state_text').innerText = st;
     $('state_text').style.color = stColor;
 }
@@ -873,9 +886,26 @@ function evtTime(u) {
     return Math.floor(u/3600) + "h " + Math.floor((u%3600)/60) + "m";
 }
 
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function eventMsg(msg) {
+    const s = String(msg || '');
+    if (LANG === 'cs') {
+        if (s.startsWith('🚨 TAMPER ALERT! Sensor may be obstructed')) return '🚨 SABOTÁŽ: zakrytý senzor';
+        if (s.startsWith('⚠️ ANTI-MASKING: Sensor nedetekuje')) return '⚠️ ANTI-MASK: bez aktivity';
+        if (s.startsWith('🟢 Heartbeat: ONLINE')) return '🟢 ONLINE, střežím';
+        if (s === 'Radar sensor connection lost') return 'Radar ztratil spojení';
+        if (s === 'Gate config reverted by FW') return 'Konfigurace hradel vrácena firmwarem';
+        if (s === 'Auto-arm (no presence)') return 'Automatické střežení (bez přítomnosti)';
+    }
+    return s;
+}
+
 function toggleEvtView() {
     evtViewTimeline = !evtViewTimeline;
-    $('evt_toggle').textContent = evtViewTimeline ? t('evt_table_btn') : 'Timeline';
+    $('evt_toggle').textContent = evtViewTimeline ? t('evt_table_btn') : t('event_timeline_btn');
     $('evt_timeline').className = evtViewTimeline ? '' : 'hidden';
     $('evt_table').className = evtViewTimeline ? 'hidden' : '';
 }
@@ -891,10 +921,11 @@ function loadEvents() {
         let h = '';
         events.forEach(e => {
             const m = EVT_META[e.type] || EVT_META[0];
+            const msg = escapeHtml(eventMsg(e.msg));
             h += `<tr style="border-bottom:1px solid #222">
                 <td style="padding:5px; white-space:nowrap">${evtTime(e.ts)}</td>
                 <td style="padding:5px; color:${m.color}; font-weight:bold">${m.name}</td>
-                <td style="padding:5px">${e.msg}</td>
+                <td style="padding:5px">${msg}</td>
                 <td style="padding:5px">${e.dist > 0 ? (e.dist+"cm") : "-"}</td>
             </tr>`;
         });
@@ -908,11 +939,12 @@ function loadEvents() {
             events.forEach(e => {
                 const m = EVT_META[e.type] || EVT_META[0];
                 const distStr = e.dist > 0 ? ` · ${e.dist}cm` : '';
+                const msg = escapeHtml(eventMsg(e.msg));
                 tl += `<div style="position:relative; padding:8px 0 8px 20px; border-left:2px solid ${m.color}; margin-left:0">
                     <div style="position:absolute; left:-7px; top:12px; width:12px; height:12px; border-radius:50%; background:${m.color}"></div>
                     <div style="position:absolute; left:-58px; top:8px; width:50px; text-align:right; font-size:0.7rem; color:#888">${evtTime(e.ts)}</div>
                     <div style="font-size:0.8rem"><span style="color:${m.color}; font-weight:bold">${m.icon} ${m.name}</span>${distStr}</div>
-                    <div style="font-size:0.75rem; color:#aaa; margin-top:2px">${e.msg}</div>
+                    <div style="font-size:0.75rem; color:#aaa; margin-top:2px">${msg}</div>
                 </div>`;
             });
         }
@@ -1356,7 +1388,7 @@ function saveAuth() {
     let p2 = $('txt_auth_pass2').value;
     if(!u || !p) { showToast(t('enter_creds')); return; }
     if(p !== p2) { showToast(t('pass_mismatch')); return; }
-    if(u.length < 4 || p.length < 4) { showToast("Min. 4 chars"); return; }
+    if(u.length < 4 || p.length < 4) { showToast(t('min_chars')); return; }
 
     fetch(`/api/auth/config?user=${encodeURIComponent(u)}&pass=${encodeURIComponent(p)}`, {
         method: 'POST'
@@ -1366,7 +1398,7 @@ function saveAuth() {
     });
 }
 
-window.onload = init;
+window.addEventListener('load', init);
 </script>
 </body>
 </html>

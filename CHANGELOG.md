@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.12.2] - 2026-05-19
+### Fixed
+- **Web GUI i18n**: UI reliably applies translations during app startup while keeping English as the first-run default language.
+- **Event messages**: New tamper, anti-mask, and heartbeat event log messages are Czech and short enough for the fixed event buffer.
+- **Stored event display**: History view normalizes older stored English tamper/heartbeat messages when the GUI is in Czech.
+
 ## [v3.12.1] - 2026-05-03
 ### Fixed
 - **RSSI false alarms**: `checkRSSIAnomaly()` compared two consecutive raw `WiFi.RSSI()` samples; ESP32 RSSI noise (±10–20 dBm) caused spurious "Sudden RSSI drop" NET events. Fixed: EWMA-smoothed baseline (α=0.2, ~5s window) + 2-consecutive-sample confirmation before alerting — single noisy spikes no longer trigger, sustained drops still detected.
