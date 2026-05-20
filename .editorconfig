@@ -1,0 +1,26 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{cpp,h,hpp,c,ino}]
+indent_style = space
+indent_size = 4
+
+[*.ini]
+indent_style = space
+indent_size = 4
+
+[*.{json}]
+indent_style = space
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[Makefile]
+indent_style = tab

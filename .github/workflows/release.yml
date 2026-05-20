@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO and esptool
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio esptool
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      - name: Prepare example configuration
+        run: |
+          cp include/secrets.h.example include/secrets.h
+          cp include/known_devices.h.example include/known_devices.h
+
+      - name: Build firmware (esp32_type_A)
+        run: pio run -e esp32_type_A
+
+      - name: Merge firmware into single flashable binary
+        run: |
+          BOOT_APP0=$(find ~/.platformio -name boot_app0.bin | head -1)
+          esptool.py --chip esp32 merge_bin \
+            -o firmware-ld2412-${{ github.ref_name }}.bin \
+            --flash_mode dio \
+            --flash_freq 40m \
+            --flash_size 4MB \
+            0x1000  .pio/build/esp32_type_A/bootloader.bin \
+            0x8000  .pio/build/esp32_type_A/partitions.bin \
+            0xe000  "${BOOT_APP0}" \
+            0x10000 .pio/build/esp32_type_A/firmware.bin
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: firmware-ld2412-${{ github.ref_name }}.bin
+          body: |
+            ## HLK-LD2412 Security Firmware ${{ github.ref_name }}
+
+            ### Flash Instructions
+
+            Download `firmware-ld2412-${{ github.ref_name }}.bin` and flash with esptool:
+
+            ```bash
+            esptool.py --chip esp32 --baud 460800 write_flash 0x0 firmware-ld2412-${{ github.ref_name }}.bin
+            ```
+
+            Replace `PORT` with your device's serial port:
+
+            | OS | Typical port |
+            |---|---|
+            | Linux | `/dev/ttyUSB0` or `/dev/ttyACM0` |
+            | macOS | `/dev/cu.usbserial-*` or `/dev/cu.SLAB_USBtoUART` |
+            | Windows | `COM3`, `COM4`, … (check Device Manager) |
+
+            Full example:
+
+            ```bash
+            esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash 0x0 firmware-ld2412-${{ github.ref_name }}.bin
+            ```
+
+            > **Note:** Hold the BOOT button while connecting if the device does not enter flash mode automatically.
+
+            ### Build Environment
+
+            This release was built with the `esp32_type_A` environment (RX=GPIO16, TX=GPIO17).
+            For other pin configurations, build from source using `pio run -e esp32_type_B` etc.
